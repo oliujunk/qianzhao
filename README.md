@@ -6,5 +6,5 @@ $env:GOOS="linux"
 $env:GOARCH="arm"
 $env:CGO_ENABLED="1"
 $env:GOARM="7"
-$env:GIN_MODE="release"
+$env:GO111MODULE="on"
 go build

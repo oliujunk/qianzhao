@@ -1,3 +1,9 @@
 *.sec
 *.epd
 *.db
+*.log
+__debug_bin
+go.sum
+qianzhao
+qianzhao.exe
+five

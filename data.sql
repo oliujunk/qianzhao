@@ -10,45 +10,10 @@
  Target Server Version : 3030001
  File Encoding         : 65001
 
- Date: 23/06/2020 09:08:08
+ Date: 04/07/2020 16:50:12
 */
 
 PRAGMA foreign_keys = false;
-
--- ----------------------------
--- Table structure for config
--- ----------------------------
-DROP TABLE IF EXISTS "config";
-CREATE TABLE "config" (
-  "id" INTEGER NOT NULL,
-  "device_name" text(255),
-  "device_code" text(5) NOT NULL,
-  "item_code" text(4) NOT NULL,
-  "serial_number" text(4) NOT NULL,
-  "element_name" text(255),
-  "element_num" text(255),
-  "element_code" text(255),
-  "longitude" text(8),
-  "latitude" text(8),
-  "elevation" text(8),
-  "software_version" text(8),
-  "IP" text(15),
-  "mask" text(15),
-  "gateway" text(15),
-  "http_port" integer(5),
-  "ftp_port" integer(5),
-  "command_port" integer(5),
-  "management_ip" text(15),
-  "management_port" integer(5),
-  "sntp_ip" text(15),
-  "sample" integer(2),
-  PRIMARY KEY ("id")
-);
-
--- ----------------------------
--- Records of config
--- ----------------------------
-INSERT INTO "config" VALUES (1, 789, 88889, 'X232', '0000', '-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-', '101/102/100/100/100/100/100/100/100/100/100/100/100/100/100/100', '2321/2322/-/-/-/-/-/-/-/-/-/-/-/-/-/-', NULL, NULL, NULL, NULL, '192.168.1.254', NULL, NULL, 80, NULL, NULL, NULL, NULL, NULL, NULL);
 
 -- ----------------------------
 -- Table structure for data
@@ -211,5 +176,98 @@ INSERT INTO "element" VALUES (213, '电流', 'A', 0, 10000, 1.0, 0);
 INSERT INTO "element" VALUES (214, '功率', 'W', 0, 10000, 1.0, 0);
 INSERT INTO "element" VALUES (215, '流量', 'm3/h', 0, 10000, 0.01, 2);
 INSERT INTO "element" VALUES (216, '累计流量', 'm3', 0, 30000, 1.0, 0);
+
+-- ----------------------------
+-- Table structure for parameter
+-- ----------------------------
+DROP TABLE IF EXISTS "parameter";
+CREATE TABLE "parameter" (
+  "id" INTEGER NOT NULL,
+  "device_code" text(5) NOT NULL,
+  "item_code" text(4) NOT NULL,
+  "vid" text(4),
+  "serial_number" text(4) NOT NULL,
+  "element_name" text(255),
+  "element_num" text(255),
+  "element_code" text(255),
+  "longitude" text(8),
+  "latitude" text(8),
+  "elevation" text(8),
+  "IP" text(15),
+  "mask" text(15),
+  "gateway" text(15),
+  "http_port" integer(5),
+  "ftp_port" integer(5),
+  "command_port" integer(5),
+  "management_ip" text(15),
+  "management_port" integer(5),
+  "sntp_ip" text(15),
+  "sample" integer(2),
+  PRIMARY KEY ("id")
+);
+
+-- ----------------------------
+-- Records of parameter
+-- ----------------------------
+INSERT INTO "parameter" VALUES (1, 88889, 'X232', 'WHPH', '0000', '-/-/-/-/-/-/-/-/-/-/-/-/-/-/-/-', '101/102/103/104/100/100/100/100/100/100/100/100/100/100/100/100', '2321/2322/2323/2324/-/-/-/-/-/-/-/-/-/-/-/-', 'E114.000', 'N30.530', 51, '010.014.051.130', '255.255.255.192', '010.014.051.129', 80, 21, 81, '010.014.051.158', 1024, 'ntp.ntsc.ac.cn', 2);
+
+-- ----------------------------
+-- Table structure for property
+-- ----------------------------
+DROP TABLE IF EXISTS "property";
+CREATE TABLE "property" (
+  "id" INTEGER NOT NULL,
+  "device_name" text(255),
+  "device_type" text(255),
+  "manufacturers_name" text(255),
+  "manufacturers_address" text(255),
+  "manufacture_date" text(20),
+  "contact_phone" text(20),
+  "contact_name" text(20),
+  "software_version" text(20),
+  PRIMARY KEY ("id")
+);
+
+-- ----------------------------
+-- Records of property
+-- ----------------------------
+INSERT INTO "property" VALUES (1, '自动气象站', 'PH-CJ0', '武汉新普惠科技有限公司', '武汉市藏龙岛', '2020-06', '133xxxxxxxx', '陈', 'Ver1.0');
+
+-- ----------------------------
+-- Table structure for status
+-- ----------------------------
+DROP TABLE IF EXISTS "status";
+CREATE TABLE "status" (
+  "id" INTEGER NOT NULL,
+  "clock_state" text(1),
+  "equipment_zero" integer(10),
+  "dc_state" text(1),
+  "ac_state" text(1),
+  "auto_calibration" text(1),
+  "zero_setting" text(1),
+  "event_count" integer(20),
+  "abnormal_state" text(1),
+  "custom_state" text(2)
+);
+
+-- ----------------------------
+-- Records of status
+-- ----------------------------
+INSERT INTO "status" VALUES (1, 2, 0, 0, 1, 0, 0, 0, 0, 0);
+
+-- ----------------------------
+-- Table structure for user
+-- ----------------------------
+DROP TABLE IF EXISTS "user";
+CREATE TABLE "user" (
+  "username" text(20) NOT NULL,
+  "password" text(8) NOT NULL,
+  "type" integer(1) NOT NULL
+);
+
+-- ----------------------------
+-- Records of user
+-- ----------------------------
+INSERT INTO "user" VALUES ('administrator', '01234567', 0);
 
 PRAGMA foreign_keys = true;
