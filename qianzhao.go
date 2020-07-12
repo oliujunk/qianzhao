@@ -5,9 +5,8 @@ import (
 	"whxph.com/qianzhao/apiserver"
 	"whxph.com/qianzhao/commandserver"
 	"whxph.com/qianzhao/communication"
-	"whxph.com/qianzhao/fileoperation"
-
 	_ "whxph.com/qianzhao/database"
+	"whxph.com/qianzhao/fileoperation"
 )
 
 func init() {

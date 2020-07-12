@@ -7,7 +7,8 @@ require (
 	github.com/gin-gonic/gin v1.6.3
 	github.com/go-xorm/xorm v0.7.9
 	github.com/gogf/gf v1.13.1
+	github.com/jacobsa/go-serial v0.0.0-20180131005756-15cf729a72d4
 	github.com/mattn/go-sqlite3 v1.14.0
-	github.com/robfig/cron v1.2.0
-	github.com/tarm/serial v0.0.0-20180830185346-98f6abe2eb07
+	github.com/robfig/cron/v3 v3.0.1
+	golang.org/x/sys v0.0.0-20200625212154-ddb9806d33ae // indirect
 )

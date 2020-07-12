@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"whxph.com/qianzhao/communication"
 	"whxph.com/qianzhao/database"
 	"whxph.com/qianzhao/fileoperation"
 
@@ -76,12 +77,14 @@ func Reset() bool {
 
 // Reboot 设备重启
 func Reboot() bool {
+	if runtime.GOOS == "linux" {
+		go gproc.ShellRun("sudo reboot")
+	}
 	return true
 }
 
 // Start 命令服务
 func Start() {
-
 	cmdList = []string{
 		"dat",
 		"evt",
@@ -103,7 +106,10 @@ func Start() {
 
 	linkMap = make(map[net.Conn]LinkData)
 
-	listener, err := net.Listen("tcp", ":81")
+	parameter := database.Parameter{}
+	_, _ = database.Orm.Get(&parameter)
+
+	listener, err := net.Listen("tcp", ":"+strconv.Itoa(parameter.CommandPort))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -490,8 +496,6 @@ func getMeasurement(params []string, conn net.Conn) {
 		linkData := linkMap[conn]
 		parameter := database.Parameter{}
 		_, _ = database.Orm.Get(&parameter)
-		data := database.Data{}
-		_, _ = database.Orm.Desc("timestamp").Get(&data)
 		go func() {
 			ticker := time.NewTicker(time.Second * 1)
 			for {
@@ -513,7 +517,7 @@ func getMeasurement(params []string, conn net.Conn) {
 					}
 					for _, value := range fileoperation.ElementConfigArr {
 						buffer.WriteString(" ")
-						v := float64(fileoperation.GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), data)) * value.ChannelPrec
+						v := float64(fileoperation.GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
 						vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
 						buffer.WriteString(vStr)
 					}
@@ -549,15 +553,37 @@ func getMeasurement(params []string, conn net.Conn) {
 		now := time.Now()
 		for i := 0; i < days; i++ {
 			before, _ := strconv.Atoi(params[1+i])
-			beforeDay := now.AddDate(0, 0, -before)
-			fileInfo := fileoperation.GetFile(beforeDay.Format("20060102"), "sec")
-			content, _ := ioutil.ReadFile(fileInfo.Name)
-			contentStr := string(content)
-			_, _ = conn.Write([]byte(contentStr[0:strings.Index(contentStr, " ")] + "\n"))
-			_, _ = conn.Write(content)
-			_, _ = conn.Write([]byte("\n"))
+			if before == 0 {
+				currentDay := time.Now().Format("20060102") + ".sec"
+				files, err := ioutil.ReadDir(".")
+				if err != nil {
+					log.Println(err)
+				}
+				for _, file := range files {
+					name := file.Name()
+					if !file.IsDir() && strings.Contains(name, currentDay) {
+						content, _ := ioutil.ReadFile(name)
+						if strings.Split(name, ".")[0] == "00" {
+							contentStr := string(content)
+							_, _ = conn.Write([]byte(contentStr[0:strings.Index(contentStr, " ")] + "\n"))
+							_, _ = conn.Write(content)
+						} else {
+							_, _ = conn.Write(content)
+						}
+					}
+				}
+				_, _ = conn.Write([]byte("\n"))
+			} else {
+				beforeDay := now.AddDate(0, 0, -before)
+				fileInfo := fileoperation.GetFile(beforeDay.Format("20060102"), "sec")
+				content, _ := ioutil.ReadFile(fileInfo.Name)
+				contentStr := string(content)
+				_, _ = conn.Write([]byte(contentStr[0:strings.Index(contentStr, " ")] + "\n"))
+				_, _ = conn.Write(content)
+				_, _ = conn.Write([]byte("\n"))
+			}
+			_, _ = conn.Write([]byte("ack\n"))
 		}
-		_, _ = conn.Write([]byte("ack\n"))
 	}
 }
 

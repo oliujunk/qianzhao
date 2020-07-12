@@ -1,1 +1,0 @@
-DELETE FROM data WHERE timestamp NOT IN (SELECT timestamp FROM data ORDER BY timestamp DESC LIMIT 50);

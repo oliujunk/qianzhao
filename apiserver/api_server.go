@@ -1,9 +1,16 @@
 package apiserver
 
 import (
+	"fmt"
+	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
+	"runtime"
+	"strconv"
 	"strings"
+	"whxph.com/qianzhao/communication"
+
 	"whxph.com/qianzhao/commandserver"
 	"whxph.com/qianzhao/database"
 	"whxph.com/qianzhao/fileoperation"
@@ -14,45 +21,45 @@ import (
 // Start api
 func Start() {
 
-	// gin.SetMode(gin.ReleaseMode)
+	gin.SetMode(gin.ReleaseMode)
 
 	router := gin.Default()
 
 	router.Use(cors())
 
-	router.GET("/parameter", getParameter)
+	router.GET("/api/parameter", getParameter)
 
-	router.POST("/parameter", postParameter)
+	router.POST("/api/parameter", postParameter)
 
-	router.GET("/property", getProperty)
+	router.GET("/api/property", getProperty)
 
-	router.POST("/property", postProperty)
+	router.POST("/api/property", postProperty)
 
-	router.GET("/status", getStatus)
+	router.GET("/api/status", getStatus)
 
-	router.POST("/status", postStatus)
+	router.POST("/api/status", postStatus)
 
-	router.GET("/data", getData)
+	router.GET("/api/data", getData)
 
-	router.GET("/element", getElement)
+	router.GET("/api/element", getElement)
 
-	router.POST("/datetime", updatetime)
+	router.POST("/api/datetime", updatetime)
 
-	router.GET("/sntpsync", sntpsync)
+	router.GET("/api/sntpsync", sntpsync)
 
-	router.GET("/reset", reset)
+	router.GET("/api/reset", reset)
 
-	router.GET("/reboot", reboot)
+	router.GET("/api/reboot", reboot)
 
-	router.GET("/file/second", getSecond)
+	router.GET("/api/file/second", getSecond)
 
-	router.GET("/file/minute", getMinute)
+	router.GET("/api/file/minute", getMinute)
 
-	router.GET("/file/log", getLog)
+	router.GET("/api/file/log", getLog)
 
-	router.GET("/file/download", download)
+	router.GET("/api/file/download", download)
 
-	router.POST("/login", login)
+	router.POST("/api/login", login)
 
 	_ = router.Run(":90")
 }
@@ -81,8 +88,44 @@ func getParameter(context *gin.Context) {
 
 func postParameter(context *gin.Context) {
 	fileoperation.WriteLog("07")
+	oldParameter := database.Parameter{}
+	_, _ = database.Orm.Get(&oldParameter)
+
 	parameter := database.Parameter{}
 	_ = context.Bind(&parameter)
+
+	if runtime.GOOS == "linux" {
+		if oldParameter.HTTPPort != parameter.HTTPPort {
+			result := fileoperation.ReplaceString("/etc/nginx/nginx.conf", strconv.Itoa(oldParameter.HTTPPort), strconv.Itoa(parameter.HTTPPort))
+			if !result {
+				context.JSON(200, false)
+				return
+			}
+		}
+		if oldParameter.IP != parameter.IP || oldParameter.Mask != parameter.Mask {
+			oldIP := net.ParseIP(oldParameter.IP)
+			oldMask, _ := IPMaskToInt(oldParameter.Mask)
+			oldIPMask := oldIP.String() + "/" + strconv.Itoa(oldMask)
+			newIP := net.ParseIP(parameter.IP)
+			newMask, _ := IPMaskToInt(parameter.Mask)
+			newIPMask := newIP.String() + "/" + strconv.Itoa(newMask)
+			result := fileoperation.ReplaceString("/etc/dhcpcd.conf", "static ip_address="+oldIPMask, "static ip_address="+newIPMask)
+			if !result {
+				context.JSON(200, false)
+				return
+			}
+		}
+		if oldParameter.Gateway != parameter.Gateway {
+			oldGateway := net.ParseIP(oldParameter.Gateway).String()
+			newGateway := net.ParseIP(parameter.Gateway).String()
+			result := fileoperation.ReplaceString("/etc/dhcpcd.conf", "static routers="+oldGateway, "static routers="+newGateway)
+			if !result {
+				context.JSON(200, false)
+				return
+			}
+		}
+	}
+
 	_, _ = database.Orm.Where("id = 1").Update(&parameter)
 	_, _ = database.Orm.Get(&parameter)
 	context.JSON(200, parameter)
@@ -119,9 +162,9 @@ func postStatus(context *gin.Context) {
 }
 
 func getData(context *gin.Context) {
-	data := database.Data{}
-	_, _ = database.Orm.Desc("timestamp").Get(&data)
-	context.JSON(200, data)
+	//data := database.Data{}
+	//_, _ = database.Orm.Desc("timestamp").Get(&data)
+	context.JSON(200, communication.CurrentData)
 }
 
 func getElement(context *gin.Context) {
@@ -195,7 +238,18 @@ func download(context *gin.Context) {
 	}
 	context.Writer.Header().Add("Content-Disposition", "attachment; filename="+fileName)
 	context.Writer.Header().Add("Content-Type", "application/octet-stream")
-	context.File(fileName)
+
+	files, err := ioutil.ReadDir(".")
+	if err != nil {
+		log.Println(err)
+	}
+	for _, file := range files {
+		name := file.Name()
+		if !file.IsDir() && strings.Contains(name, fileName) {
+			content, _ := ioutil.ReadFile(name)
+			_, _ = context.Writer.Write(content)
+		}
+	}
 }
 
 type loginForm struct {
@@ -218,4 +272,27 @@ func login(context *gin.Context) {
 		return
 	}
 	context.JSON(200, true)
+}
+
+// 将ip格式的掩码转换为整型数字
+// 如 255.255.255.0 对应的整型数字为 24
+func IPMaskToInt(netmask string) (ones int, err error) {
+	ipSplitArr := strings.Split(netmask, ".")
+	if len(ipSplitArr) != 4 {
+		return 0, fmt.Errorf("netmask:%v is not valid, pattern should like: 255.255.255.0", netmask)
+	}
+	ipv4MaskArr := make([]byte, 4)
+	for i, value := range ipSplitArr {
+		intValue, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, fmt.Errorf("ipMaskToInt call strconv.Atoi error:[%v] string value is: [%s]", err, value)
+		}
+		if intValue > 255 {
+			return 0, fmt.Errorf("netmask cannot greater than 255, current value is: [%s]", value)
+		}
+		ipv4MaskArr[i] = byte(intValue)
+	}
+
+	ones, _ = net.IPv4Mask(ipv4MaskArr[0], ipv4MaskArr[1], ipv4MaskArr[2], ipv4MaskArr[3]).Size()
+	return ones, nil
 }
