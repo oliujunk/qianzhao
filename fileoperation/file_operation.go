@@ -61,7 +61,7 @@ func Start() {
 	// 定时任务
 	job := cron.New(
 		cron.WithSeconds(),
-		cron.WithChain(cron.DelayIfStillRunning(cron.DefaultLogger)))
+		cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 	_, _ = job.AddFunc("*/1 * * * * *", writeSecondData)
 	_, _ = job.AddFunc("*/1 * * * * *", writeFiveData)
 	_, _ = job.AddFunc("0 */1 * * * *", writeMinuteData)
@@ -330,7 +330,7 @@ func restart() {
 }
 
 func writeSecondData() {
-	if communication.CurrentData.Timestamp > 0 {
+	if communication.SyncRTC && communication.CurrentData.Timestamp > 0 {
 		if firstWriteSecond {
 			// 补齐数据
 			now := time.Now()
@@ -468,7 +468,7 @@ func writeSecondData() {
 }
 
 func writeMinuteData() {
-	if communication.CurrentData.Timestamp > 0 {
+	if communication.SyncRTC && communication.CurrentData.Timestamp > 0 {
 		if firstWriteMinute {
 			// 补齐数据
 			now := time.Now()

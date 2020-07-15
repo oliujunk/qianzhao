@@ -10,9 +10,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
 	"whxph.com/qianzhao/communication"
 	"whxph.com/qianzhao/database"
 	"whxph.com/qianzhao/fileoperation"
+	"whxph.com/qianzhao/utils"
 
 	"github.com/axgle/mahonia"
 	"github.com/gogf/gf/os/gproc"
@@ -39,7 +41,7 @@ func UpdateSystemDate(dateTime string) bool {
 		_, err1 := gproc.ShellExec(`date  ` + strings.Split(dateTime, " ")[0])
 		_, err2 := gproc.ShellExec(`time  ` + strings.Split(dateTime, " ")[1])
 		if err1 != nil && err2 != nil {
-			log.Println("更新系统时间错误:请用管理员身份启动程序!")
+			log.Println(err1, err2)
 			return false
 		}
 		return true
@@ -47,7 +49,7 @@ func UpdateSystemDate(dateTime string) bool {
 	case "linux":
 		_, err := gproc.ShellExec(`date -s  "` + dateTime + `"`)
 		if err != nil {
-			log.Println("更新系统时间错误:", err.Error())
+			log.Println(err)
 			return false
 		}
 		return true
@@ -459,6 +461,38 @@ func setParams(params []string, conn net.Conn) {
 		}
 		parameter.ManagementPort = port
 		parameter.SntpIP = temp[10]
+
+		if runtime.GOOS == "linux" {
+			oldParameter := database.Parameter{}
+			_, _ = database.Orm.Get(&oldParameter)
+			if oldParameter.HTTPPort != parameter.HTTPPort {
+				result := fileoperation.ReplaceString("/etc/nginx/nginx.conf", strconv.Itoa(oldParameter.HTTPPort), strconv.Itoa(parameter.HTTPPort))
+				if !result {
+					return
+				}
+			}
+			if oldParameter.IP != parameter.IP || oldParameter.Mask != parameter.Mask {
+				oldIP := net.ParseIP(oldParameter.IP)
+				oldMask, _ := utils.IPMaskToInt(oldParameter.Mask)
+				oldIPMask := oldIP.String() + "/" + strconv.Itoa(oldMask)
+				newIP := net.ParseIP(parameter.IP)
+				newMask, _ := utils.IPMaskToInt(parameter.Mask)
+				newIPMask := newIP.String() + "/" + strconv.Itoa(newMask)
+				result := fileoperation.ReplaceString("/etc/dhcpcd.conf", "static ip_address="+oldIPMask, "static ip_address="+newIPMask)
+				if !result {
+					return
+				}
+			}
+			if oldParameter.Gateway != parameter.Gateway {
+				oldGateway := net.ParseIP(oldParameter.Gateway).String()
+				newGateway := net.ParseIP(parameter.Gateway).String()
+				result := fileoperation.ReplaceString("/etc/dhcpcd.conf", "static routers="+oldGateway, "static routers="+newGateway)
+				if !result {
+					return
+				}
+			}
+		}
+
 		_, _ = database.Orm.Where("id = 1").Update(&parameter)
 		_, _ = conn.Write([]byte("ack\n"))
 		fileoperation.WriteLog("07")
