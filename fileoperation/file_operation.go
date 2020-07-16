@@ -327,6 +327,35 @@ func restart() {
 			log.Println(err)
 		}
 	}
+
+	beforeDayMinuteFileName := parameter.DeviceCode + parameter.ItemCode + now.Add(-time.Hour*24).Format("20060102") + ".epd"
+	content, err = ioutil.ReadFile(beforeDayMinuteFileName)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	contentStr = string(content)
+	rBlank = regexp.MustCompile(" ")
+	blanks = len(rBlank.FindAllStringSubmatch(contentStr, -1))
+	addRows = 1440 - (blanks-5)/len(ElementConfigArr) + 1
+	contentStr = contentStr[strings.Index(contentStr, " ")+1:]
+	buffer.Reset()
+	if addRows > 0 {
+		buffer.WriteString(contentStr)
+		for i := 0; i < addRows; i++ {
+			for _, value := range ElementConfigArr {
+				buffer.WriteString(" ")
+				v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+				vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+				buffer.WriteString(vStr)
+			}
+		}
+		newContent := AddLengthToHead(buffer)
+		err := ioutil.WriteFile(beforeDayMinuteFileName, newContent.Bytes(), os.ModePerm)
+		if nil != err {
+			log.Println(err)
+		}
+	}
 }
 
 func writeSecondData() {
@@ -394,7 +423,7 @@ func writeSecondData() {
 						addRows = addRows - (3600 - lastFileRows)
 						buffer.Reset()
 					}
-					lastHour += 1
+					lastHour++
 					for i := 0; i < addRows; i++ {
 						for _, value := range ElementConfigArr {
 							buffer.WriteString(" ")
@@ -406,7 +435,7 @@ func writeSecondData() {
 							name := fmt.Sprintf("%02d", lastHour) + "." + secondFileName
 							err = ioutil.WriteFile(name, buffer.Bytes(), os.ModePerm)
 							buffer.Reset()
-							lastHour += 1
+							lastHour++
 						}
 					}
 				}
