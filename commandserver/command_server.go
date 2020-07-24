@@ -74,6 +74,45 @@ func SntpSync(ntpAddress string) bool {
 
 // Reset 参数复位
 func Reset() bool {
+	defaultProperty := database.Property{}
+	_, _ = database.Orm.Table("default_property").Get(&defaultProperty)
+	_, _ = database.Orm.Table("property").Where("id = 1").Update(&defaultProperty)
+
+	defaultParameter := database.Parameter{}
+	_, _ = database.Orm.Table("default_parameter").Get(&defaultParameter)
+
+	if runtime.GOOS == "linux" {
+		oldParameter := database.Parameter{}
+		_, _ = database.Orm.Get(&oldParameter)
+		if oldParameter.HTTPPort != defaultParameter.HTTPPort {
+			result := fileoperation.ReplaceString("/etc/nginx/nginx.conf", strconv.Itoa(oldParameter.HTTPPort), strconv.Itoa(defaultParameter.HTTPPort))
+			if !result {
+				return false
+			}
+		}
+		if oldParameter.IP != defaultParameter.IP || oldParameter.Mask != defaultParameter.Mask {
+			oldIP := net.ParseIP(oldParameter.IP)
+			oldMask, _ := utils.IPMaskToInt(oldParameter.Mask)
+			oldIPMask := oldIP.String() + "/" + strconv.Itoa(oldMask)
+			newIP := net.ParseIP(defaultParameter.IP)
+			newMask, _ := utils.IPMaskToInt(defaultParameter.Mask)
+			newIPMask := newIP.String() + "/" + strconv.Itoa(newMask)
+			result := fileoperation.ReplaceString("/etc/dhcpcd.conf", "static ip_address="+oldIPMask, "static ip_address="+newIPMask)
+			if !result {
+				return false
+			}
+		}
+		if oldParameter.Gateway != defaultParameter.Gateway {
+			oldGateway := net.ParseIP(oldParameter.Gateway).String()
+			newGateway := net.ParseIP(defaultParameter.Gateway).String()
+			result := fileoperation.ReplaceString("/etc/dhcpcd.conf", "static routers="+oldGateway, "static routers="+newGateway)
+			if !result {
+				return false
+			}
+		}
+	}
+
+	_, _ = database.Orm.Table("parameter").Where("id = 1").Update(&defaultParameter)
 	return true
 }
 
@@ -370,9 +409,15 @@ func getParameter(params []string, conn net.Conn) {
 	case "m":
 		buffer.WriteString(fmt.Sprintf("%02d", parameter.Sample))
 		buffer.WriteString(" ")
-		buffer.WriteString(strconv.Itoa(len(fileoperation.ElementConfigArr)))
+		buffer.WriteString(fmt.Sprintf("%02d", len(fileoperation.ElementConfigArr)))
 		buffer.WriteString(" ")
-		buffer.WriteString("0")
+		buffer.WriteString(fmt.Sprintf("%02d", len(fileoperation.ElementConfigArr)*2))
+		for i := 0; i < len(fileoperation.ElementConfigArr); i++ {
+			buffer.WriteString(" ")
+			buffer.WriteString("1.0000")
+			buffer.WriteString(" ")
+			buffer.WriteString("0.00")
+		}
 		newContent := fileoperation.AddLengthToHead(buffer)
 		_, _ = conn.Write([]byte("$" + strconv.Itoa(len(newContent.String())) + "\n"))
 		_, _ = conn.Write(newContent.Bytes())

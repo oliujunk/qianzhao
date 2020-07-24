@@ -17,8 +17,6 @@ import (
 
 	"whxph.com/qianzhao/communication"
 	"whxph.com/qianzhao/database"
-
-	"github.com/robfig/cron/v3"
 )
 
 var (
@@ -33,6 +31,8 @@ var (
 	firstWriteSecond   bool
 	firstWriteMinute   bool
 	lastSecondFileSize int64
+	lastSecond         int
+	lastMinute         int
 )
 
 // ElementConfig 通道配置
@@ -58,15 +58,11 @@ func Start() {
 
 	restart()
 
-	// 定时任务
-	job := cron.New(
-		cron.WithSeconds(),
-		cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
-	_, _ = job.AddFunc("*/1 * * * * *", writeSecondData)
-	_, _ = job.AddFunc("*/1 * * * * *", writeFiveData)
-	_, _ = job.AddFunc("0 */1 * * * *", writeMinuteData)
-	_, _ = job.AddFunc("0 0 0 */1 * *", restart)
-	job.Start()
+	_, _ = communication.Job.AddFunc("*/1 * * * * *", writeSecondData)
+	_, _ = communication.Job.AddFunc("*/1 * * * * *", writeFiveData)
+	_, _ = communication.Job.AddFunc("5 */1 * * * *", writeMinuteData)
+	_, _ = communication.Job.AddFunc("0 0 0 */1 * *", restart)
+	_, _ = communication.Job.AddFunc("5 0 0 */1 * *", updateLastDay)
 }
 
 // GetFiles 根据后缀获取文件列表
@@ -209,6 +205,8 @@ func ReplaceString(absolutePath string, old string, new string) bool {
 }
 
 func restart() {
+	for !communication.SyncRTC {
+	}
 	firstWriteSecond = true
 	firstWriteMinute = true
 	lastSecondFileSize = 0
@@ -268,128 +266,55 @@ func restart() {
 		writeFiveHeader(fiveFileName, parameter)
 	}
 
-	files, err := ioutil.ReadDir(".")
-	if err != nil {
-		log.Println(err)
-	}
-	beforeDaySecondFileName := parameter.DeviceCode + parameter.ItemCode + now.Add(-time.Hour*24).Format("20060102") + ".sec"
-	if err != nil {
-		log.Fatalln(err)
-	}
-	for _, file := range files {
-		name := file.Name()
-		if !file.IsDir() && path.Ext(name) == ".sec" && strings.Contains(name, beforeDaySecondFileName) {
-			content1, err := ioutil.ReadFile(beforeDaySecondFileName)
-			if err != nil {
-				content1 = make([]byte, 0)
-			}
-			content, _ := ioutil.ReadFile(name)
-			content1 = append(content1, content...)
-			_ = ioutil.WriteFile(beforeDaySecondFileName, content1, os.ModePerm)
-			err = os.Remove(name)
-			if err != nil {
-				log.Println(err)
-			}
-		}
-	}
-
-	content, err = ioutil.ReadFile(beforeDaySecondFileName)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	contentStr = string(content)
-	rBlank := regexp.MustCompile(" ")
-	blanks := len(rBlank.FindAllStringSubmatch(contentStr, -1))
-	addRows := 86400 - (blanks-5)/len(ElementConfigArr) + 1
-	contentStr = contentStr[strings.Index(contentStr, " ")+1:]
-	var buffer bytes.Buffer
-	if addRows > 0 {
-		buffer.WriteString(contentStr)
-		for i := 0; i < addRows; i++ {
-			for _, value := range ElementConfigArr {
-				buffer.WriteString(" ")
-				v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-				vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-				buffer.WriteString(vStr)
-			}
-		}
-		newContent := AddLengthToHead(buffer)
-		err := ioutil.WriteFile(beforeDaySecondFileName, newContent.Bytes(), os.ModePerm)
-		if nil != err {
-			log.Println(err)
-		}
-	} else {
-		buffer.WriteString(contentStr)
-		newContent := AddLengthToHead(buffer)
-		err := ioutil.WriteFile(beforeDaySecondFileName, newContent.Bytes(), os.ModePerm)
-		if nil != err {
-			log.Println(err)
-		}
-	}
-
-	beforeDayMinuteFileName := parameter.DeviceCode + parameter.ItemCode + now.Add(-time.Hour*24).Format("20060102") + ".epd"
-	content, err = ioutil.ReadFile(beforeDayMinuteFileName)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	contentStr = string(content)
-	rBlank = regexp.MustCompile(" ")
-	blanks = len(rBlank.FindAllStringSubmatch(contentStr, -1))
-	addRows = 1440 - (blanks-5)/len(ElementConfigArr) + 1
-	contentStr = contentStr[strings.Index(contentStr, " ")+1:]
-	buffer.Reset()
-	if addRows > 0 {
-		buffer.WriteString(contentStr)
-		for i := 0; i < addRows; i++ {
-			for _, value := range ElementConfigArr {
-				buffer.WriteString(" ")
-				v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-				vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-				buffer.WriteString(vStr)
-			}
-		}
-		newContent := AddLengthToHead(buffer)
-		err := ioutil.WriteFile(beforeDayMinuteFileName, newContent.Bytes(), os.ModePerm)
-		if nil != err {
-			log.Println(err)
-		}
-	}
 }
 
 func writeSecondData() {
-	if communication.SyncRTC && communication.CurrentData.Timestamp > 0 {
-		if firstWriteSecond {
-			// 补齐数据
-			now := time.Now()
-			seconds := now.Hour()*3600 + now.Minute()*60 + now.Second()
+	if firstWriteSecond {
+		// 补齐数据
+		now := time.Now()
+		seconds := now.Hour()*3600 + now.Minute()*60 + now.Second()
 
-			files, err := ioutil.ReadDir(".")
-			if err != nil {
-				log.Println(err)
+		files, err := ioutil.ReadDir(".")
+		if err != nil {
+			log.Println(err)
+		}
+
+		var secondFileList []string
+		for _, file := range files {
+			if !file.IsDir() && path.Ext(file.Name()) == ".sec" && strings.Contains(file.Name(), secondFileName) {
+				secondFileList = append(secondFileList, file.Name())
 			}
-
-			var secondFileList []string
-			for _, file := range files {
-				if !file.IsDir() && path.Ext(file.Name()) == ".sec" && strings.Contains(file.Name(), secondFileName) {
-					secondFileList = append(secondFileList, file.Name())
+		}
+		addRows := seconds
+		lastFileRows := 0
+		if len(secondFileList) > 1 {
+			lastSecondFileName := secondFileList[len(secondFileList)-1]
+			content, _ := ioutil.ReadFile(lastSecondFileName)
+			contentStr := string(content)
+			rBlank := regexp.MustCompile(" ")
+			blanks := len(rBlank.FindAllStringSubmatch(contentStr, -1))
+			lastFileRows = blanks / len(ElementConfigArr)
+			addRows = seconds - (len(secondFileList)-2)*3600 - lastFileRows
+			var buffer bytes.Buffer
+			lastHourStr := strings.Split(lastSecondFileName, ".")[0]
+			lastHour, _ := strconv.Atoi(lastHourStr)
+			if lastFileRows+addRows <= 3600 {
+				for i := 0; i < 3600-lastFileRows; i++ {
+					for _, value := range ElementConfigArr {
+						buffer.WriteString(" ")
+						v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+						vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+						buffer.WriteString(vStr)
+					}
 				}
-			}
-			addRows := seconds
-			lastFileRows := 0
-			if len(secondFileList) > 1 {
-				lastSecondFileName := secondFileList[len(secondFileList)-1]
-				content, _ := ioutil.ReadFile(lastSecondFileName)
-				contentStr := string(content)
-				rBlank := regexp.MustCompile(" ")
-				blanks := len(rBlank.FindAllStringSubmatch(contentStr, -1))
-				lastFileRows = blanks / len(ElementConfigArr)
-				addRows = seconds - (len(secondFileList)-2)*3600 - lastFileRows
-				var buffer bytes.Buffer
-				lastHourStr := strings.Split(lastSecondFileName, ".")[0]
-				lastHour, _ := strconv.Atoi(lastHourStr)
-				if lastFileRows+addRows <= 3600 {
+				lastSecondFile, err := os.OpenFile(lastSecondFileName, os.O_APPEND|os.O_CREATE, os.ModePerm)
+				if err != nil {
+					log.Println(err)
+				}
+				_, _ = lastSecondFile.Write(buffer.Bytes())
+				_ = lastSecondFile.Close()
+			} else {
+				if lastFileRows < 3600 {
 					for i := 0; i < 3600-lastFileRows; i++ {
 						for _, value := range ElementConfigArr {
 							buffer.WriteString(" ")
@@ -404,44 +329,10 @@ func writeSecondData() {
 					}
 					_, _ = lastSecondFile.Write(buffer.Bytes())
 					_ = lastSecondFile.Close()
-				} else {
-					if lastFileRows < 3600 {
-						for i := 0; i < 3600-lastFileRows; i++ {
-							for _, value := range ElementConfigArr {
-								buffer.WriteString(" ")
-								v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-								vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-								buffer.WriteString(vStr)
-							}
-						}
-						lastSecondFile, err := os.OpenFile(lastSecondFileName, os.O_APPEND|os.O_CREATE, os.ModePerm)
-						if err != nil {
-							log.Println(err)
-						}
-						_, _ = lastSecondFile.Write(buffer.Bytes())
-						_ = lastSecondFile.Close()
-						addRows = addRows - (3600 - lastFileRows)
-						buffer.Reset()
-					}
-					lastHour++
-					for i := 0; i < addRows; i++ {
-						for _, value := range ElementConfigArr {
-							buffer.WriteString(" ")
-							v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-							vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-							buffer.WriteString(vStr)
-						}
-						if (i+1)%3600 == 0 || i == addRows-1 {
-							name := fmt.Sprintf("%02d", lastHour) + "." + secondFileName
-							err = ioutil.WriteFile(name, buffer.Bytes(), os.ModePerm)
-							buffer.Reset()
-							lastHour++
-						}
-					}
+					addRows = addRows - (3600 - lastFileRows)
+					buffer.Reset()
 				}
-			} else {
-				addRows = seconds
-				var buffer bytes.Buffer
+				lastHour++
 				for i := 0; i < addRows; i++ {
 					for _, value := range ElementConfigArr {
 						buffer.WriteString(" ")
@@ -450,25 +341,47 @@ func writeSecondData() {
 						buffer.WriteString(vStr)
 					}
 					if (i+1)%3600 == 0 || i == addRows-1 {
-						name := fmt.Sprintf("%02d", i/3600+1) + "." + secondFileName
+						name := fmt.Sprintf("%02d", lastHour) + "." + secondFileName
 						err = ioutil.WriteFile(name, buffer.Bytes(), os.ModePerm)
 						buffer.Reset()
+						lastHour++
 					}
 				}
 			}
-			secondFiles, err := ioutil.ReadDir(".")
-			if err != nil {
-				log.Println(err)
-			}
-			for _, file := range secondFiles {
-				name := file.Name()
-				if !file.IsDir() && path.Ext(name) == ".sec" && strings.Contains(name, secondFileName) && strings.Split(name, ".")[0] != "00" {
-					lastSecondFileSize += file.Size()
+		} else {
+			addRows = seconds
+			var buffer bytes.Buffer
+			for i := 0; i < addRows; i++ {
+				for _, value := range ElementConfigArr {
+					buffer.WriteString(" ")
+					v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+					vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+					buffer.WriteString(vStr)
+				}
+				if (i+1)%3600 == 0 || i == addRows-1 {
+					name := fmt.Sprintf("%02d", i/3600+1) + "." + secondFileName
+					err = ioutil.WriteFile(name, buffer.Bytes(), os.ModePerm)
+					buffer.Reset()
 				}
 			}
+		}
+		secondFiles, err := ioutil.ReadDir(".")
+		if err != nil {
+			log.Println(err)
+		}
+		for _, file := range secondFiles {
+			name := file.Name()
+			if !file.IsDir() && path.Ext(name) == ".sec" && strings.Contains(name, secondFileName) && strings.Split(name, ".")[0] != "00" {
+				lastSecondFileSize += file.Size()
+			}
+		}
 
-			firstWriteSecond = false
-		} else {
+		lastSecond = now.Hour()*3600 + now.Minute()*60 + now.Second()
+		firstWriteSecond = false
+	} else {
+		now := time.Now()
+		nowSecond := now.Hour()*3600 + now.Minute()*60 + now.Second()
+		if nowSecond > lastSecond {
 			currentIndex := fmt.Sprintf("%02d", time.Now().Hour()+1)
 			var buffer bytes.Buffer
 			for _, value := range ElementConfigArr {
@@ -492,43 +405,48 @@ func writeSecondData() {
 			lastSecondFileSize += int64(buffer.Len())
 
 			updateSecondHeader()
+
+			lastSecond = nowSecond
 		}
 	}
 }
 
 func writeMinuteData() {
-	if communication.SyncRTC && communication.CurrentData.Timestamp > 0 {
-		if firstWriteMinute {
-			// 补齐数据
-			now := time.Now()
-			minutes := now.Hour()*60 + now.Minute()
+	if firstWriteMinute {
+		// 补齐数据
+		now := time.Now()
+		minutes := now.Hour()*60 + now.Minute()
 
-			content, _ := ioutil.ReadFile(minuteFileName)
-			contentStr := string(content)
-			rBlank := regexp.MustCompile(" ")
-			blanks := len(rBlank.FindAllStringSubmatch(contentStr, -1))
-			addRows := minutes - (blanks-5)/len(ElementConfigArr) + 1
+		content, _ := ioutil.ReadFile(minuteFileName)
+		contentStr := string(content)
+		rBlank := regexp.MustCompile(" ")
+		blanks := len(rBlank.FindAllStringSubmatch(contentStr, -1))
+		addRows := minutes - (blanks-5)/len(ElementConfigArr) + 1
 
-			var buffer bytes.Buffer
-			contentStr = contentStr[strings.Index(contentStr, " ")+1:]
-			buffer.WriteString(contentStr)
-			for i := 0; i < addRows; i++ {
-				for _, value := range ElementConfigArr {
-					buffer.WriteString(" ")
-					v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-					vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-					buffer.WriteString(vStr)
-				}
+		var buffer bytes.Buffer
+		contentStr = contentStr[strings.Index(contentStr, " ")+1:]
+		buffer.WriteString(contentStr)
+		for i := 0; i < addRows; i++ {
+			for _, value := range ElementConfigArr {
+				buffer.WriteString(" ")
+				v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+				vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+				buffer.WriteString(vStr)
 			}
-			newContent := AddLengthToHead(buffer)
+		}
+		newContent := AddLengthToHead(buffer)
 
-			err := ioutil.WriteFile(minuteFileName, newContent.Bytes(), os.ModePerm)
-			if nil != err {
-				log.Println(err)
-			}
+		err := ioutil.WriteFile(minuteFileName, newContent.Bytes(), os.ModePerm)
+		if nil != err {
+			log.Println(err)
+		}
 
-			firstWriteMinute = false
-		} else {
+		lastMinute = now.Hour()*60 + now.Minute()
+		firstWriteMinute = false
+	} else {
+		now := time.Now()
+		nowMinute := now.Hour()*60 + now.Minute()
+		if nowMinute > lastMinute {
 			content, _ := ioutil.ReadFile(minuteFileName)
 			contentStr := string(content)
 			contentStr = contentStr[strings.Index(contentStr, " ")+1:]
@@ -547,8 +465,10 @@ func writeMinuteData() {
 			if nil != err {
 				log.Println(err)
 			}
+			lastMinute = nowMinute
 		}
 	}
+
 }
 
 func fileIsExist(filename string) bool {
@@ -706,5 +626,98 @@ func updateSecondHeader() {
 	err := ioutil.WriteFile("00."+secondFileName, buffer.Bytes(), os.ModePerm)
 	if nil != err {
 		log.Println(err)
+	}
+}
+
+func updateLastDay() {
+	parameter := database.Parameter{}
+	_, _ = database.Orm.Get(&parameter)
+	now := time.Now()
+	// 前一天分钟数据补齐
+	beforeDayMinuteFileName := parameter.DeviceCode + parameter.ItemCode + now.Add(-time.Hour*24).Format("20060102") + ".epd"
+	content, err := ioutil.ReadFile(beforeDayMinuteFileName)
+	if err != nil {
+		log.Println(err)
+	} else {
+		contentStr := string(content)
+		rBlank := regexp.MustCompile(" ")
+		blanks := len(rBlank.FindAllStringSubmatch(contentStr, -1))
+		addRows := 1440 - (blanks-5)/len(ElementConfigArr) + 1
+		contentStr = contentStr[strings.Index(contentStr, " ")+1:]
+		var buffer bytes.Buffer
+		if addRows > 0 {
+			buffer.WriteString(contentStr)
+			for i := 0; i < addRows; i++ {
+				for _, value := range ElementConfigArr {
+					buffer.WriteString(" ")
+					v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+					vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+					buffer.WriteString(vStr)
+				}
+			}
+			newContent := AddLengthToHead(buffer)
+			err := ioutil.WriteFile(beforeDayMinuteFileName, newContent.Bytes(), os.ModePerm)
+			if nil != err {
+				log.Println(err)
+			}
+		}
+	}
+
+	// 前一天的秒数据合并
+	beforeDaySecondFileName := parameter.DeviceCode + parameter.ItemCode + now.Add(-time.Hour*24).Format("20060102") + ".sec"
+
+	var beforeDaySecondFileNameList []string
+
+	files, err := ioutil.ReadDir(".")
+	if err != nil {
+		log.Println(err)
+	}
+	for _, file := range files {
+		name := file.Name()
+		if !file.IsDir() && path.Ext(name) == ".sec" && strings.Contains(name, beforeDaySecondFileName) {
+			if name == beforeDaySecondFileName {
+				return // 已合并完直接返回
+			}
+			beforeDaySecondFileNameList = append(beforeDaySecondFileNameList, name)
+		}
+	}
+	if len(beforeDaySecondFileNameList) <= 0 {
+		return // 不存在直接返回
+	}
+
+	content1 := make([]byte, 0)
+	for _, name := range beforeDaySecondFileNameList {
+		content, _ := ioutil.ReadFile(name)
+		content1 = append(content1, content...)
+		_ = os.Remove(name)
+	}
+	_ = ioutil.WriteFile(beforeDaySecondFileName, content1, os.ModePerm)
+
+	content, err = ioutil.ReadFile(beforeDaySecondFileName)
+	if err != nil {
+		log.Println(err)
+	} else {
+		contentStr := string(content)
+		rBlank := regexp.MustCompile(" ")
+		blanks := len(rBlank.FindAllStringSubmatch(contentStr, -1))
+		addRows := 86400 - (blanks-5)/len(ElementConfigArr) + 1
+		contentStr = contentStr[strings.Index(contentStr, " ")+1:]
+		var buffer bytes.Buffer
+		if addRows > 0 {
+			buffer.WriteString(contentStr)
+			for i := 0; i < addRows; i++ {
+				for _, value := range ElementConfigArr {
+					buffer.WriteString(" ")
+					v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+					vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+					buffer.WriteString(vStr)
+				}
+			}
+			newContent := AddLengthToHead(buffer)
+			err := ioutil.WriteFile(beforeDaySecondFileName, newContent.Bytes(), os.ModePerm)
+			if nil != err {
+				log.Println(err)
+			}
+		}
 	}
 }

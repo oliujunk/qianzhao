@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"whxph.com/qianzhao/communication"
 	"whxph.com/qianzhao/utils"
@@ -44,7 +45,9 @@ func Start() {
 
 	router.GET("/api/element", getElement)
 
-	router.POST("/api/datetime", updatetime)
+	router.POST("/api/datetime", updateTime)
+
+	router.GET("/api/datetime", getTime)
 
 	router.GET("/api/sntpsync", sntpsync)
 
@@ -180,7 +183,7 @@ type timeForm struct {
 	Datetime string `form:"datetime" binding:"required"`
 }
 
-func updatetime(context *gin.Context) {
+func updateTime(context *gin.Context) {
 	fileoperation.WriteLog("00")
 	timeForm := timeForm{}
 	_ = context.Bind(&timeForm)
@@ -189,6 +192,10 @@ func updatetime(context *gin.Context) {
 	} else {
 		context.JSON(200, false)
 	}
+}
+
+func getTime(context *gin.Context) {
+	context.JSON(200, time.Now().Unix())
 }
 
 func sntpsync(context *gin.Context) {

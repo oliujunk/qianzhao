@@ -20,14 +20,15 @@ var (
 
 	port    io.ReadWriteCloser
 	element [16]int16
+	Job     *cron.Cron
 )
 
 // Start 定时读取数据
 func Start() {
 	// 串口配置
 	options := serial.OpenOptions{
-		PortName:              "COM2",
-		//PortName:              "/dev/ttyUSB0",
+		//PortName:              "COM1",
+		PortName:              "/dev/ttyUSB0",
 		BaudRate:              9600,
 		DataBits:              8,
 		StopBits:              1,
@@ -42,15 +43,14 @@ func Start() {
 	if err != nil {
 		log.Fatalln(err)
 	}
-	defer port.Close()
 
 	// 定时任务
-	job := cron.New(cron.WithSeconds())
-	_, _ = job.AddFunc("*/1 * * * * *", read)
-	_, _ = job.AddFunc("0 0 0 */1 * *", reSync)
-	job.Start()
-	defer job.Stop()
-	select {}
+	Job = cron.New(
+		cron.WithSeconds(),
+		cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
+	_, _ = Job.AddFunc("*/1 * * * * *", read)
+	_, _ = Job.AddFunc("55 59 23 */1 * *", reSync)
+	Job.Start()
 }
 
 func read() {
@@ -99,8 +99,10 @@ func read() {
 	if !SyncRTC && runtime.GOOS == "linux" {
 		_, err := gproc.ShellExec(`date -s "` + utcTime.Format("2006-01-02 15:04:05") + `"`)
 		if err != nil {
-			log.Println(err)
+			log.Fatalln(err)
 		}
+		Job.Stop()
+		Job.Start()
 		SyncRTC = true
 	} else if runtime.GOOS == "windows" {
 		SyncRTC = true
