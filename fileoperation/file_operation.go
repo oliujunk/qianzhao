@@ -23,16 +23,17 @@ var (
 	// ElementConfigArr 通道配置
 	ElementConfigArr []ElementConfig
 
-	secondFileName     string
-	minuteFileName     string
-	fiveFileName       string
-	logFileName        string
-	elementArr         []database.Element
-	firstWriteSecond   bool
-	firstWriteMinute   bool
-	lastSecondFileSize int64
-	lastSecond         int
-	lastMinute         int
+	secondFileName          string
+	beforeDaySecondFileName string
+	minuteFileName          string
+	fiveFileName            string
+	logFileName             string
+	elementArr              []database.Element
+	firstWriteSecond        bool
+	firstWriteMinute        bool
+	lastSecondFileSize      int64
+	lastSecond              int
+	lastMinute              int
 )
 
 // ElementConfig 通道配置
@@ -242,7 +243,11 @@ func restart() {
 	}
 
 	now := time.Now()
+
 	secondFileName = parameter.DeviceCode + parameter.ItemCode + now.Format("20060102") + ".sec"
+
+	beforeDaySecondFileName = parameter.DeviceCode + parameter.ItemCode + now.Add(-time.Hour*24).Format("20060102") + ".sec"
+
 	if !fileIsExist("00." + secondFileName) {
 		writeHeader("00."+secondFileName, parameter, "02")
 	}
@@ -280,10 +285,28 @@ func writeSecondData() {
 		}
 
 		var secondFileList []string
+		var beforeMoreOneDaySecondFileList []string
 		for _, file := range files {
-			if !file.IsDir() && path.Ext(file.Name()) == ".sec" && strings.Contains(file.Name(), secondFileName) {
-				secondFileList = append(secondFileList, file.Name())
+			fileName := file.Name()
+			if !file.IsDir() && path.Ext(fileName) == ".sec" {
+				if strings.Contains(fileName, secondFileName) {
+					secondFileList = append(secondFileList, fileName)
+				} else if !strings.Contains(fileName, beforeDaySecondFileName) {
+					nameArray := strings.Split(fileName, ".")
+					if len(nameArray) >= 3 {
+						beforeMoreOneDaySecondFileList = append(beforeMoreOneDaySecondFileList, fileName)
+					}
+				}
 			}
+		}
+		if len(beforeMoreOneDaySecondFileList) > 0 {
+			content1 := make([]byte, 0)
+			for _, name := range beforeMoreOneDaySecondFileList {
+				content, _ := ioutil.ReadFile(name)
+				content1 = append(content1, content...)
+				_ = os.Remove(name)
+			}
+			_ = ioutil.WriteFile(beforeMoreOneDaySecondFileList[0][3:], content1, os.ModePerm)
 		}
 		addRows := seconds
 		lastFileRows := 0
@@ -295,11 +318,12 @@ func writeSecondData() {
 			blanks := len(rBlank.FindAllStringSubmatch(contentStr, -1))
 			lastFileRows = blanks / len(ElementConfigArr)
 			addRows = seconds - (len(secondFileList)-2)*3600 - lastFileRows
+			backAddRows := addRows
 			var buffer bytes.Buffer
 			lastHourStr := strings.Split(lastSecondFileName, ".")[0]
 			lastHour, _ := strconv.Atoi(lastHourStr)
 			if lastFileRows+addRows <= 3600 {
-				for i := 0; i < 3600-lastFileRows; i++ {
+				for i := 0; i < addRows; i++ {
 					for _, value := range ElementConfigArr {
 						buffer.WriteString(" ")
 						v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
@@ -307,6 +331,7 @@ func writeSecondData() {
 						buffer.WriteString(vStr)
 					}
 				}
+
 				lastSecondFile, err := os.OpenFile(lastSecondFileName, os.O_APPEND|os.O_CREATE, os.ModePerm)
 				if err != nil {
 					log.Println(err)
@@ -315,14 +340,23 @@ func writeSecondData() {
 				_ = lastSecondFile.Close()
 			} else {
 				if lastFileRows < 3600 {
-					for i := 0; i < 3600-lastFileRows; i++ {
-						for _, value := range ElementConfigArr {
-							buffer.WriteString(" ")
-							v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-							vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-							buffer.WriteString(vStr)
+					if backAddRows >= 3600 {
+						for i := 0; i < 3600-lastFileRows; i++ {
+							for range ElementConfigArr {
+								buffer.WriteString(" NULL")
+							}
+						}
+					} else {
+						for i := 0; i < 3600-lastFileRows; i++ {
+							for _, value := range ElementConfigArr {
+								buffer.WriteString(" ")
+								v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+								vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+								buffer.WriteString(vStr)
+							}
 						}
 					}
+
 					lastSecondFile, err := os.OpenFile(lastSecondFileName, os.O_APPEND|os.O_CREATE, os.ModePerm)
 					if err != nil {
 						log.Println(err)
@@ -334,12 +368,19 @@ func writeSecondData() {
 				}
 				lastHour++
 				for i := 0; i < addRows; i++ {
-					for _, value := range ElementConfigArr {
-						buffer.WriteString(" ")
-						v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-						vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-						buffer.WriteString(vStr)
+					if backAddRows >= 3600 {
+						for range ElementConfigArr {
+							buffer.WriteString(" NULL")
+						}
+					} else {
+						for _, value := range ElementConfigArr {
+							buffer.WriteString(" ")
+							v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+							vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+							buffer.WriteString(vStr)
+						}
 					}
+
 					if (i+1)%3600 == 0 || i == addRows-1 {
 						name := fmt.Sprintf("%02d", lastHour) + "." + secondFileName
 						err = ioutil.WriteFile(name, buffer.Bytes(), os.ModePerm)
@@ -352,12 +393,19 @@ func writeSecondData() {
 			addRows = seconds
 			var buffer bytes.Buffer
 			for i := 0; i < addRows; i++ {
-				for _, value := range ElementConfigArr {
-					buffer.WriteString(" ")
-					v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-					vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-					buffer.WriteString(vStr)
+				if addRows >= 3600 {
+					for range ElementConfigArr {
+						buffer.WriteString(" NULL")
+					}
+				} else {
+					for _, value := range ElementConfigArr {
+						buffer.WriteString(" ")
+						v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+						vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+						buffer.WriteString(vStr)
+					}
 				}
+
 				if (i+1)%3600 == 0 || i == addRows-1 {
 					name := fmt.Sprintf("%02d", i/3600+1) + "." + secondFileName
 					err = ioutil.WriteFile(name, buffer.Bytes(), os.ModePerm)
@@ -377,6 +425,9 @@ func writeSecondData() {
 		}
 
 		lastSecond = now.Hour()*3600 + now.Minute()*60 + now.Second()
+
+		updateLastDay()
+
 		firstWriteSecond = false
 	} else {
 		now := time.Now()
@@ -426,14 +477,23 @@ func writeMinuteData() {
 		var buffer bytes.Buffer
 		contentStr = contentStr[strings.Index(contentStr, " ")+1:]
 		buffer.WriteString(contentStr)
-		for i := 0; i < addRows; i++ {
-			for _, value := range ElementConfigArr {
-				buffer.WriteString(" ")
-				v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
-				vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
-				buffer.WriteString(vStr)
+		if addRows >= 60 {
+			for i := 0; i < addRows; i++ {
+				for range ElementConfigArr {
+					buffer.WriteString(" NULL")
+				}
+			}
+		} else {
+			for i := 0; i < addRows; i++ {
+				for _, value := range ElementConfigArr {
+					buffer.WriteString(" ")
+					v := float64(GetFieldName("E"+strconv.Itoa(value.ChannelIndex+1), communication.CurrentData)) * value.ChannelPrec
+					vStr := fmt.Sprintf("%."+strconv.Itoa(value.ChannelDecimal)+"f", v)
+					buffer.WriteString(vStr)
+				}
 			}
 		}
+
 		newContent := AddLengthToHead(buffer)
 
 		err := ioutil.WriteFile(minuteFileName, newContent.Bytes(), os.ModePerm)
@@ -662,9 +722,6 @@ func updateLastDay() {
 			}
 		}
 	}
-
-	// 前一天的秒数据合并
-	beforeDaySecondFileName := parameter.DeviceCode + parameter.ItemCode + now.Add(-time.Hour*24).Format("20060102") + ".sec"
 
 	var beforeDaySecondFileNameList []string
 

@@ -47,7 +47,7 @@ func UpdateSystemDate(dateTime string) bool {
 		return true
 
 	case "linux":
-		_, err := gproc.ShellExec(`date -s  "` + dateTime + `"`)
+		_, err := gproc.ShellExec(`date -s "` + dateTime + `"`)
 		if err != nil {
 			log.Println(err)
 			return false
