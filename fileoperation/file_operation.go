@@ -211,6 +211,22 @@ func restart() {
 	firstWriteSecond = true
 	firstWriteMinute = true
 	lastSecondFileSize = 0
+	now := time.Now()
+
+	files, err := ioutil.ReadDir(".")
+	if err != nil {
+		log.Println(err)
+	}
+
+	for _, file := range files {
+		fileName := file.Name()
+		if !file.IsDir() && path.Ext(fileName) == ".sec" || path.Ext(fileName) == ".epd" || path.Ext(fileName) == ".log" {
+			fileInfo, _ := os.Stat(fileName)
+			if fileInfo.ModTime().After(now) {
+				_ = os.Remove(fileName)
+			}
+		}
+	}
 
 	// 文件准备
 	parameter := database.Parameter{}
@@ -241,8 +257,6 @@ func restart() {
 			ElementConfigArr = append(ElementConfigArr, elementConfig)
 		}
 	}
-
-	now := time.Now()
 
 	secondFileName = parameter.DeviceCode + parameter.ItemCode + now.Format("20060102") + ".sec"
 

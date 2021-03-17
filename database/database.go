@@ -11,6 +11,7 @@ var (
 	// Orm orm引擎
 	Orm *xorm.Engine
 )
+
 // Parameter 参数
 type Parameter struct {
 	ID             int `xorm:"id"`
@@ -68,7 +69,7 @@ type Data struct {
 	Timestamp int64
 	E1        int16
 	E2        int16
-	E3        int16
+	E3        int
 	E4        int16
 	E5        int16
 	E6        int16

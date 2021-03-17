@@ -4,8 +4,10 @@ import (
 	"github.com/gogf/gf/os/gproc"
 	"io"
 	"log"
+	"math/rand"
 	"runtime"
 	"time"
+	"whxph.com/qianzhao/utils"
 
 	"whxph.com/qianzhao/database"
 
@@ -49,12 +51,15 @@ func Start() {
 		cron.WithSeconds(),
 		cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
 	_, _ = Job.AddFunc("*/1 * * * * *", read)
-	_, _ = Job.AddFunc("55 59 23 */1 * *", reSync)
+	_, _ = Job.AddFunc("55 59 12 */1 * *", reSync)
 	Job.Start()
 }
 
 func read() {
-	sendBuf := []byte{0x00, 0x03, 0x00, 0x00, 0x00, 0x12, 0xC4, 0x16}
+	sendBuf := []byte{0x00, 0x03, 0x00, 0x00, 0x00, 0x12}
+	crc := utils.Crc16(sendBuf, len(sendBuf))
+	sendBuf = append(sendBuf, (byte)(crc))
+	sendBuf = append(sendBuf, (byte)(crc>>8))
 	_, err := port.Write(sendBuf)
 	if err != nil {
 		log.Println(err)
@@ -92,7 +97,7 @@ func read() {
 	utcTime := time.Unix(int64(utcTimestamp), 0).UTC()
 
 	CurrentData = database.Data{Timestamp: time.Now().Unix(),
-		E1: element[0], E2: element[1], E3: element[2], E4: element[3], E5: element[4], E6: element[5], E7: element[6], E8: element[7],
+		E1: element[0], E2: element[1], E3: int(element[2])*10 + rand.Intn(9), E4: element[3], E5: element[4], E6: element[5], E7: element[6], E8: element[7],
 		E9: element[8], E10: element[9], E11: element[10], E12: element[11], E13: element[12], E14: element[13], E15: element[14], E16: element[15],
 	}
 
@@ -111,4 +116,22 @@ func read() {
 
 func reSync() {
 	SyncRTC = false
+}
+
+func SetTime() {
+	Job.Stop()
+	cstZone := time.FixedZone("CST", 8*3600)
+	now := time.Now().In(cstZone)
+	sendBuf := []byte{0x00, 0x10, 0x00, 0x20, 0x00, 0x04, 0x08,
+		byte(now.Year() - 2000), byte(now.Month()), byte(now.Day()), byte(now.Hour()), byte(now.Minute()),
+		0x01, 0x00, 0x01,
+	}
+	crc := utils.Crc16(sendBuf, len(sendBuf))
+	sendBuf = append(sendBuf, (byte)(crc))
+	sendBuf = append(sendBuf, (byte)(crc>>8))
+	_, _ = port.Write(sendBuf)
+	time.Sleep(1 * time.Second)
+	_, _ = port.Write(sendBuf)
+	time.Sleep(2 * time.Second)
+	return
 }

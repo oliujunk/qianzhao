@@ -47,11 +47,13 @@ func UpdateSystemDate(dateTime string) bool {
 		return true
 
 	case "linux":
+		defer Reboot()
 		_, err := gproc.ShellExec(`date -s "` + dateTime + `"`)
 		if err != nil {
 			log.Println(err)
 			return false
 		}
+		communication.SetTime()
 		return true
 	}
 	return false
